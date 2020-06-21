@@ -1,0 +1,587 @@
+---
+title: "1_pds_threetimpts_cleaning_script"
+author: "Jackie"
+date: "2/15/2020"
+output: html_notebook 
+---
+
+# loading libraries
+```{r}
+library(lmerTest)
+library(tidyverse)
+library(foreign)
+library(haven)
+library(readxl)
+library(naniar)
+```
+
+# read in sex info
+### sex coding  
+_1 = Male_  
+_2 = Female_
+```{r}
+demo_t1_fp <- "~/Box/demographics_golden_standard.T1.sav"
+demo_t1 <- read_sav(demo_t1_fp) %>%
+  mutate(
+    ELS_ID = as.factor(ELS_ID)
+    ) %>%
+  dplyr::select(ELS_ID,
+                Child_Sex.T1)
+  
+demo_t1_clean <- 
+  demo_t1 %>%
+  mutate(Child_Sex.T1 = as.factor(Child_Sex.T1)) %>%
+  mutate(Child_Sex.T1_rec = 
+           recode_factor(Child_Sex.T1,
+                "1" = "Male",
+                "2"= "Female")
+  )
+```
+
+# reading in pds t1 through t3
+```{r, echo=FALSE}
+
+pdst1 <-"~/Box/pds.t1.sav"
+pdst1_df <- read_sav(pdst1) %>%
+  mutate(
+    ELS_ID = as.factor(ELS_ID)
+    ) %>%
+  left_join(.,
+            demo_t1_clean,
+            by = "ELS_ID")
+# pds t1 includes the tk1s
+
+pdst2 <- "~/Box/pds.T2.sav"
+pdst2_df <- read_sav(pdst2) %>%
+  mutate(
+    ELS_ID = as.factor(ELS_ID)
+    ) %>%
+  left_join(.,
+            demo_t1_clean,
+            by = "ELS_ID")
+
+
+pdst3 <- "~/Box/pds.T3.sav"
+pdst3_df <- read_sav(pdst3) %>%
+  mutate(
+    ELS_ID = as.factor(ELS_ID)
+    ) %>%
+  left_join(.,
+            demo_t1_clean,
+            by = "ELS_ID")
+
+```
+
+
+### defining functions
+```{r}
+to_fact <-
+  function(x) as.factor(x)
+to_num <-
+  function(x) as.numeric(x)
+```
+
+# Cleaning pds T1
+
+## converting variables
+```{r}
+# replace with NA
+
+pdst1_df_nareplace <- 
+  pdst1_df %>%
+  replace_with_na(.,
+                  replace = list(pds_1_devo.T1 = c("888", "999", "10"),
+                                 pds_2_growth.T1 = c("888", "999", "10"),
+                                 pds_3_bodyhair.T1 = c("888", "999", "10"),
+                                 pds_4_skin.T1 = c("888", "999", "10"),
+                                 mpds_5_voice.T1 = c("888", "999", "10"),
+                                 mpds_6_hairface.T1 = c("888", "999", "10"),
+                                 fpds_5_breast.T1 = c("888", "999", "10"),
+                                 fpds_menstr.T1 = c("888", "999", "10"),
+                                 fpds_menst_mm.T1= c("888", "999", "10"),
+                                 fpds_menst_yy.T1= c("888", "999", "10")))
+pdst1_df_clean <- 
+  pdst1_df_nareplace %>%
+  mutate(
+    ELS_ID = as.factor(ELS_ID)
+  ) %>%
+  dplyr::select(-Timepoint, -Session_Type)
+```
+
+## computing new variables for T1
+
+_creating gonad, adrenal subscale, and total score for boys and girls spearately_
+```{r}
+pdst1_df_clean <- 
+  pdst1_df_clean %>%
+  mutate(pds_female_gonad.T1 = 
+           ifelse(
+             Child_Sex.T1_rec == "Female",
+           rowMeans(
+             pdst1_df[,c(
+               "pds_2_growth.T1",
+               "fpds_5_breast.T1",
+               "fpds_menstr.T1"
+               )], 
+             na.rm = TRUE),
+           "NA"
+           )
+         ) %>%
+  mutate(pds_male_gonad.T1 =
+           ifelse(
+             Child_Sex.T1_rec == "Male",
+           rowMeans(
+             pdst1_df[,c(
+               "pds_2_growth.T1",
+               "mpds_5_voice.T1",
+               "mpds_6_hairface.T1"
+               )],
+             na.rm = TRUE),
+           "NA"
+           )
+         ) %>%
+  mutate(pds_female_adren.T1 =
+           ifelse(
+             Child_Sex.T1_rec == "Female",
+           rowMeans(
+             pdst1_df[,c(
+               "pds_3_bodyhair.T1",
+               "pds_4_skin.T1"
+             )],
+             na.rm = TRUE),
+           "NA"
+           )
+         ) %>%
+  mutate(pds_male_adren.T1 =
+           ifelse(
+             Child_Sex.T1_rec == "Male",
+           rowMeans(
+             pdst1_df[,c(
+               "pds_3_bodyhair.T1",
+               "pds_4_skin.T1"               
+             )],
+             na.rm = TRUE),
+           "NA"
+           )
+         )
+
+pdst1_df_clean <-
+  pdst1_df_clean %>%
+  mutate_at(
+    vars(
+      starts_with("pds"),
+      -pds_date.T1),
+    to_num
+  )
+
+pdst1_df_clean$pds_female_total.T1 <- rowSums(pdst1_df_clean[, c("pds_female_gonad.T1","pds_female_adren.T1")])
+pdst1_df_clean$pds_male_total.T1 <- rowSums(pdst1_df_clean[, c("pds_male_gonad.T1","pds_male_adren.T1")])
+
+# replace with NA
+pdst1_df_clean <- 
+  pdst1_df_clean %>%
+  replace_with_na(replace =
+                    list(pds_female_total.T1 = c("NA"))) %>%
+  replace_with_na(replace = 
+                    list(pds_male_total.T1 = c("NA"))) %>%
+  replace_with_na(replace = 
+                    list(pds_female_gonad.T1 = c("NA"))) %>%
+  replace_with_na(replace = 
+                    list(pds_female_adren.T1 = c("NA"))) %>%
+  replace_with_na(replace = 
+                    list(pds_male_gonad.T1 = c("NA"))) %>%
+  replace_with_na(replace = 
+                    list(pds_male_adren.T1 = c("NA")))
+```
+
+```{r}
+# tidying pds at t1 up
+pdst1_df_tidy <-
+  pdst1_df_clean %>%
+  gather(pds_total.T1,
+         pds_total_value.T1,
+         pds_female_total.T1,
+         pds_male_total.T1) %>%
+  filter(!is.na(pds_total_value.T1)
+         )  %>%
+  gather(pds_adren.T1,
+         pds_adren_value.T1,
+         pds_male_adren.T1,
+         pds_female_adren.T1) %>%
+  filter(!is.na(pds_adren_value.T1)
+         ) %>%
+  gather(pds_gonad.T1,
+         pds_gonad_value.T1,
+         pds_male_gonad.T1,
+         pds_female_gonad.T1) %>%
+  filter(!is.na(pds_gonad_value.T1)
+         )
+```
+
+
+```{r}
+dup <-
+  pdst1_df_tidy %>%
+filter(
+  duplicated(ELS_ID)
+)
+
+
+```
+
+```{r}
+# keeping uniques IDs
+pdst1_df_tidy <-
+  pdst1_df_tidy %>%
+    distinct(ELS_ID,
+             .keep_all = TRUE)
+```
+
+
+# Cleaning pds T2  
+
+### filtering out duplicated IDs in pdst2
+_I'm using the .5/.2 sessions bc they are closest to the scan date_
+```{r, warning=FALSE, echo=FALSE}
+
+pdst2_df_dup <- 
+  pdst2_df %>%
+  filter(duplicated(ELS_ID)
+         ) 
+
+# adding a "re-assessed" variable
+pdst2_df_clean <- 
+  pdst2_df %>%
+  mutate(reassessed =
+           ifelse(is.na(Session_Type),
+                  "no",
+                  "yes"
+                  )
+         )
+```
+
+```{r}
+
+pdst2_df_unique <- 
+  pdst2_df_clean %>%
+  filter(!(ELS_ID =="xx" &
+             is.na(Session_Type)
+           )
+  )
+
+# keeping uniques IDs
+pdst2_df_tidy <-
+  pdst2_df_unique %>%
+    distinct(ELS_ID,
+             .keep_all = TRUE)
+```
+
+
+_creating gonad, adrenal subscale, and total score for boys and girls spearately_
+```{r}
+# replace with NA
+
+pdst2_df_nareplace <- 
+  pdst2_df_tidy %>%
+  replace_with_na(.,
+                  replace = list(pds_1_devo.T2 = c("888", "999", "10"),
+                                 pds_2_growth.T2 = c("888", "999", "10"),
+                                 pds_3_bodyhair.T2 = c("888", "999", "10"),
+                                 pds_4_skin.T2 = c("888", "999", "10"),
+                                 mpds_5_voice.T2 = c("888", "999", "10"),
+                                 mpds_6_hairface.T2 = c("888", "999", "10"),
+                                 fpds_5_breast.T2 = c("888", "999", "10"),
+                                 fpds_menstr.T2 = c("888", "999", "10"),
+                                 fpds_menst_mm.T2= c("888", "999", "10"),
+                                 fpds_menst_yy.T2= c("888", "999", "10")))
+
+pdst2_df_clean <- 
+  pdst2_df_tidy %>%
+  mutate(pds_female_gonad.T2 = 
+           ifelse(
+             Child_Sex.T1_rec == "Female",
+           rowMeans(
+             pdst2_df_tidy[,c(
+               "pds_2_growth.T2",
+               "fpds_5_breast.T2",
+               "fpds_menstr.T2"
+               )], 
+             na.rm = TRUE),
+           "NA"
+           )
+         ) %>%
+  mutate(pds_male_gonad.T2 =
+           ifelse(
+             Child_Sex.T1_rec == "Male",
+           rowMeans(
+             pdst2_df_tidy[,c(
+               "pds_2_growth.T2",
+               "mpds_5_voice.T2",
+               "mpds_6_hairface.T2"
+               )],
+             na.rm = TRUE),
+           "NA"
+           )
+         ) %>%
+  mutate(pds_female_adren.T2 =
+           ifelse(
+             Child_Sex.T1_rec == "Female",
+           rowMeans(
+             pdst2_df_tidy[,c(
+               "pds_3_bodyhair.T2",
+               "pds_4_skin.T2"
+             )],
+             na.rm = TRUE),
+           "NA"
+           )
+         ) %>%
+  mutate(pds_male_adren.T2 =
+           ifelse(
+             Child_Sex.T1_rec == "Male",
+           rowMeans(
+             pdst2_df_tidy[,c(
+               "pds_3_bodyhair.T2",
+               "pds_4_skin.T2"               
+             )],
+             na.rm = TRUE),
+           "NA"
+           )
+         )
+
+pdst2_df_clean <-
+  pdst2_df_clean %>%
+  mutate_at(
+    vars(
+      starts_with("pds"),
+      -pds_date.T2),
+    to_num)
+
+pdst2_df_clean$pds_female_total.T2 <- rowSums(pdst2_df_clean[, c("pds_female_gonad.T2","pds_female_adren.T2")])
+pdst2_df_clean$pds_male_total.T2 <- rowSums(pdst2_df_clean[, c("pds_male_gonad.T2","pds_male_adren.T2")])
+
+# replace with NA
+pdst2_df_clean <- 
+  pdst2_df_clean %>%
+  replace_with_na(replace =
+                    list(pds_female_total.T2 = c("NA", "NaN"))) %>%
+  replace_with_na(replace = 
+                    list(pds_male_total.T2 = c("NA", "NaN"))) %>%
+  replace_with_na(replace = 
+                    list(pds_female_gonad.T2 = c("NA", "NaN"))) %>%
+  replace_with_na(replace = 
+                    list(pds_female_adren.T2 = c("NA", "NaN"))) %>%
+  replace_with_na(replace = 
+                    list(pds_male_gonad.T2 = c("NA", "NaN"))) %>%
+  replace_with_na(replace = 
+                    list(pds_male_adren.T2 = c("NA", "NaN")))
+
+
+```
+
+```{r}
+# tidying pds at t2 up
+pdst2_df_tidy <-
+  pdst2_df_clean %>%
+  gather(pds_total.T2,
+         pds_total_value.T2,
+         pds_female_total.T2,
+         pds_male_total.T2) %>%
+  filter(!is.na(pds_total_value.T2)
+         )  %>%
+  gather(pds_adren.T2,
+         pds_adren_value.T2,
+         pds_male_adren.T2,
+         pds_female_adren.T2) %>%
+  filter(!is.na(pds_adren_value.T2)
+         ) %>%
+  gather(pds_gonad.T2,
+         pds_gonad_value.T2,
+         pds_male_gonad.T2,
+         pds_female_gonad.T2) %>%
+  filter(!is.na(pds_gonad_value.T2)
+         )
+```
+
+
+# Cleaning pds T3  
+```{r}
+# replace with NA
+
+pdst3_df_nareplace <- 
+  pdst3_df %>%
+  replace_with_na(.,
+                  replace = list(pds_1_devo.T3 = c("888", "999", "10"),
+                                 pds_2_growth.T3 = c("888", "999", "10"),
+                                 pds_3_bodyhair.T3 = c("888", "999", "10"),
+                                 pds_4_skin.T3 = c("888", "999", "10"),
+                                 mpds_5_voice.T3 = c("888", "999", "10"),
+                                 mpds_6_hairface.T3 = c("888", "999", "10"),
+                                 fpds_5_breast.T3 = c("888", "999", "10"),
+                                 fpds_menstr.T3 = c("888", "999", "10"),
+                                 fpds_menst_mm.T3= c("888", "999", "10"),
+                                 fpds_menst_yy.T3= c("888", "999", "10")))
+pdst3_df_clean <- 
+  pdst3_df_nareplace %>%
+  mutate(
+    ELS_ID = as.factor(ELS_ID)
+  ) %>%
+  mutate_at(
+    vars(
+      starts_with("pds"),
+      -pds_date.T3),
+    to_num) %>%
+  dplyr::select(-Timepoint)
+```
+
+_I'm using the .5/.2 sessions bc they are closest to the scan date_
+```{r, warning=FALSE, echo=FALSE}
+
+# duplicated IDs
+pdst3_df_dup <- 
+  pdst3_df_clean %>%
+  filter(duplicated(ELS_ID)
+         ) 
+
+# adding a "re-assessed" variable
+pdst3_df_clean <- 
+  pdst3_df_clean %>%
+  mutate(reassessed =
+           ifelse(is.na(Session_Type),
+                  "no",
+                  "yes"
+                  )
+         )
+```
+
+```{r}
+
+pdst3_df_unique <- 
+  pdst3_df_clean %>%
+  filter(!(ELS_ID == "xx" & 
+           is.na(Session_Type)
+           )
+         )
+        
+# duplicated IDs
+pdst3_df_dup <- 
+  pdst3_df_unique  %>%
+  filter(duplicated(ELS_ID)
+         ) 
+
+# keeping uniques IDs
+pdst3_df_tidy <-
+  pdst3_df_unique %>%
+    distinct(ELS_ID,
+             .keep_all = TRUE)
+```
+
+_creating gonad, adrenal subscale, and total score for boys and girls spearately_
+```{r}
+
+pdst3_df_clean <- 
+  pdst3_df_tidy %>%
+  mutate(pds_female_gonad.T3 = 
+           ifelse(
+             Child_Sex.T1_rec == "Female",
+           rowMeans(
+             pdst3_df_tidy[,c(
+               "pds_2_growth.T3",
+               "fpds_5_breast.T3",
+               "fpds_menstr.T3"
+               )], 
+             na.rm = TRUE),
+           "NA"
+           )
+         ) %>%
+  mutate(pds_male_gonad.T3 =
+           ifelse(
+             Child_Sex.T1_rec == "Male",
+           rowMeans(
+             pdst3_df_tidy[,c(
+               "pds_2_growth.T3",
+               "mpds_5_voice.T3",
+               "mpds_6_hairface.T3"
+               )],
+             na.rm = TRUE),
+           "NA"
+           )
+         ) %>%
+  mutate(pds_female_adren.T3 =
+           ifelse(
+             Child_Sex.T1_rec == "Female",
+           rowMeans(
+             pdst3_df_tidy[,c(
+               "pds_3_bodyhair.T3",
+               "pds_4_skin.T3"
+             )],
+             na.rm = TRUE),
+           "NA"
+           )
+         ) %>%
+  mutate(pds_male_adren.T3 =
+           ifelse(
+             Child_Sex.T1_rec == "Male",
+           rowMeans(
+             pdst3_df_tidy[,c(
+               "pds_3_bodyhair.T3",
+               "pds_4_skin.T3"               
+             )],
+             na.rm = TRUE),
+           "NA"
+           )
+         )
+
+pdst3_df_clean <-
+  pdst3_df_clean %>%
+  mutate_at(
+    vars(
+      starts_with("pds"),
+      -pds_date.T3),
+    to_num)
+
+pdst3_df_clean$pds_female_total.T3 <- rowSums(pdst3_df_clean[, c("pds_female_gonad.T3","pds_female_adren.T3")])
+pdst3_df_clean$pds_male_total.T3 <- rowSums(pdst3_df_clean[, c("pds_male_gonad.T3","pds_male_adren.T3")])
+
+# replace with NA
+pdst3_df_clean <- 
+  pdst3_df_clean %>%
+  replace_with_na(replace =
+                    list(pds_female_total.T3 = c("NA", "NaN"))) %>%
+  replace_with_na(replace = 
+                    list(pds_male_total.T3 = c("NA", "NaN"))) %>%
+  replace_with_na(replace = 
+                    list(pds_female_gonad.T3 = c("NA", "NaN"))) %>%
+  replace_with_na(replace = 
+                    list(pds_female_adren.T3 = c("NA", "NaN"))) %>%
+replace_with_na(replace = 
+                    list(pds_male_gonad.T3 = c("NA", "NaN"))) %>%
+  replace_with_na(replace = 
+                    list(pds_male_adren.T3 = c("NA", "NaN")))
+
+
+```
+
+```{r}
+# tidying pds at t3 up
+pdst3_df_tidy <-
+  pdst3_df_clean %>%
+  gather(pds_total.T3,
+         pds_total_value.T3,
+         pds_female_total.T3,
+         pds_male_total.T3) %>%
+  filter(!is.na(pds_total_value.T3)
+         )  %>%
+  gather(pds_adren.T3,
+         pds_adren_value.T3,
+         pds_male_adren.T3,
+         pds_female_adren.T3) %>%
+  filter(!is.na(pds_adren_value.T3)
+         ) %>%
+  gather(pds_gonad.T3,
+         pds_gonad_value.T3,
+         pds_male_gonad.T3,
+         pds_female_gonad.T3) %>%
+  filter(!is.na(pds_gonad_value.T3)
+         )
+```
+

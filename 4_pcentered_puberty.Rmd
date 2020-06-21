@@ -1,0 +1,373 @@
+---
+title: "4_pcentered_puberty"
+author: "Jackie"
+date: "2/11/2020"
+output:
+    html_notebook:
+    toc: yes
+    toc_float: yes
+---
+
+# loading libraries
+```{r}
+library(lmerTest)
+library(tidyverse)
+library(foreign)
+library(haven)
+library(readxl)
+library(naniar)
+library(lubridate)
+library(sjPlot)
+library(nlme)
+```
+
+
+# reading in data
+```{r}
+# puberty wide
+pub_wide_fp <- "~/Box/two_or_more_pub_timepts_wide.csv"
+pub_wide <- read_csv(pub_wide_fp) %>%
+  mutate(
+    ELS_ID = as.factor(ELS_ID)
+  )
+```
+
+# sex diff in pds?
+```{r}
+
+# I may need to look at sexes separately..will see
+
+pub_wide %>%
+  ggplot(.,
+         aes(x = Child_Sex.T1_rec,
+             y = pds_gonad_value.T1)) +
+  geom_boxplot()
+pub_wide %>%
+  ggplot(.,
+         aes(x = Child_Sex.T1_rec,
+             y = pds_adren_value.T1)) +
+  geom_boxplot()
+pub_wide %>%
+  ggplot(.,
+         aes(x = Child_Sex.T1_rec,
+             y = pds_gonad_value.T2)) +
+  geom_boxplot()
+pub_wide %>%
+  ggplot(.,
+         aes(x = Child_Sex.T1_rec,
+             y = pds_adren_value.T2)) +
+  geom_boxplot()
+pub_wide %>%
+  ggplot(.,
+         aes(x = Child_Sex.T1_rec,
+             y = pds_gonad_value.T3)) +
+  geom_boxplot()
+pub_wide %>%
+  ggplot(.,
+         aes(x = Child_Sex.T1_rec,
+             y = pds_adren_value.T3)) +
+  geom_boxplot()
+```
+
+# Basic Fixed and Random Effect Model
+
+### to extract tanner stage (intercept) and slopes   
+Regressing tanner on age to get a metric for where individuals are in puberty  
+relative to those their age
+From https://cran.r-project.org/web/packages/EMAtools/EMAtools.pdf
+
+#### wide to long
+```{r}
+pub_long <-
+  pub_wide %>%
+  mutate(
+    ELS_ID = as.factor(ELS_ID)
+  ) %>%
+  gather(
+    pds_total_timepoint,
+    pds_total_value,
+    pds_total_value.T1,
+    pds_total_value.T2,
+    pds_total_value.T3
+  ) %>%
+  gather(
+    pds_adren_timepoint,
+    pds_adren_value,
+    pds_adren_value.T1,
+    pds_adren_value.T2,
+    pds_adren_value.T3
+  ) %>%
+  gather(
+    pds_gonad_timepoint,
+    pds_gonad_value,
+    pds_gonad_value.T1,
+    pds_gonad_value.T2,
+    pds_gonad_value.T3
+  ) %>%
+  mutate(
+    match_pds = 
+      ifelse(
+        pds_total_timepoint == "pds_total_value.T1" &
+          pds_adren_timepoint == "pds_adren_value.T1" &
+          pds_gonad_timepoint == "pds_gonad_value.T1",
+        "match_pds",
+        "no_match_pds"
+      ),
+    match_pds =
+      ifelse(
+        pds_total_timepoint == "pds_total_value.T2" &
+          pds_adren_timepoint == "pds_adren_value.T2" &
+          pds_gonad_timepoint == "pds_gonad_value.T2",
+        "match_pds",
+        match_pds
+      ),
+    match_pds =
+      ifelse(
+        pds_total_timepoint == "pds_total_value.T3" &
+          pds_adren_timepoint == "pds_adren_value.T3" &
+          pds_gonad_timepoint == "pds_gonad_value.T3",
+        "match_pds",
+        match_pds
+      )      
+  ) %>%
+  filter(
+    match_pds == "match_pds"
+  ) %>% 
+  gather(
+    tanner_timepoint,
+    tanner_score,
+    tanner_average.T1,
+    tanner_average.T2,
+    tanner_average.T3
+  ) %>%
+  gather(
+    age_timepoint,
+    age,
+    Age.T1,
+    Age.T2,
+    Age.T3
+  ) %>%
+  mutate(
+    match =
+      ifelse(
+        tanner_timepoint == "tanner_average.T1" &
+          age_timepoint == "Age.T1" &
+          pds_total_timepoint == "pds_total_value.T1",
+        "match",
+        "nonmatch"
+      ),
+    match = 
+      ifelse(
+        tanner_timepoint == "tanner_average.T2" &
+          age_timepoint == "Age.T2" &
+          pds_total_timepoint == "pds_total_value.T2",
+        "match",
+        match       
+      ),
+    match =
+      ifelse(
+        tanner_timepoint == "tanner_average.T3" &
+          age_timepoint == "Age.T3" &
+          pds_total_timepoint == "pds_total_value.T3",
+        "match",
+        match
+        )
+  ) %>%
+  filter(
+    match == "match"
+  ) %>%
+  dplyr::select(
+    -starts_with("match")
+  ) %>%
+  mutate(
+    ELS_ID = as.factor(ELS_ID)
+  ) %>%
+  mutate(
+    Child_Sex.T1_rec = as.factor(Child_Sex.T1_rec)
+  )
+```
+
+
+```{r}
+library(EMAtools)
+
+# centering within clusters (i.e., persons)
+pub_long_cent <-
+  pub_long %>%
+  mutate(
+    age_cent = pcenter(pub_long$ELS_ID, pub_long$age), # name of ID variable, variable I want to center,
+    age.mc = age - mean(age, na.rm = TRUE),
+    pds_cent = pcenter(pub_long$ELS_ID, pub_long$pds_total_value),
+    pds.mc = pds_total_value - mean(pds_total_value, na.rm = TRUE),
+    pds_go_cent = pcenter(pub_long$ELS_ID, pub_long$pds_gonad_value),
+    pds_go.mc = pds_gonad_value - mean(pds_gonad_value, na.rm = TRUE),
+    pds_ad_cent = pcenter(pub_long$ELS_ID, pub_long$pds_adren_value),
+    pds_ad.mc = pds_adren_value - mean(pds_adren_value, na.rm = TRUE)
+  )
+
+```
+
+##### checking by hand: centering within cluster (cwc), where zero represents the average value across one person's situations (timepoints).
+```{r}
+pub_long_cent_byhand <-
+  pub_long_cent %>%
+  mutate(age.gmc = age - mean(age, na.rm = TRUE),
+         pds.gmc = pds_total_value - mean(pds_total_value, na.rm = TRUE),
+         pds_go.gmc = pds_gonad_value - mean(pds_gonad_value, na.rm = TRUE),
+         pds_ad.gmc = pds_adren_value - mean(pds_adren_value, na.rm = TRUE)) %>% # grand mean centering
+  group_by(ELS_ID) %>% # now, I'm person centering (centeirng within person)
+  mutate(age.cm = mean(age, na.rm = TRUE),
+         pds.cm = mean(pds_total_value, na.rm = TRUE),
+         pds_go.cm = mean(pds_gonad_value, na.rm = TRUE),
+         pds_ad.cm = mean(pds_adren_value, na.rm = TRUE)) %>%
+  group_by(ELS_ID) %>%
+  mutate(age.cwc = age - mean(age, na.rm = TRUE),
+         pds.cwc = pds_total_value - mean(pds_total_value, na.rm = TRUE),
+         pds_go.cwc = pds_gonad_value - mean(pds_gonad_value, na.rm = TRUE),
+         pds_ad.cwc = pds_adren_value - mean(pds_adren_value, na.rm = TRUE)) %>%
+  ungroup() %>%
+  mutate(age.cmc = age.cm - mean(age.cm, na.rm = TRUE),
+         pds.cmc = pds.cm - mean(pds.cm, na.rm = TRUE),
+         pds_go.cmc = pds_go.cm - mean(pds_go.cm, na.rm = TRUE),
+         pds_ad.cmc = pds_ad.cm - mean(pds_ad.cm, na.rm = TRUE)) # grand mean centering of the age variable (the aggregated variable) - not sure I totally get what's going with this cmc variable
+
+# age cent (with the EMAtools package) and age.cwc (by hand) match!
+
+# random int models
+m1.nc <- lmer(tanner_score ~ 1 + age + (1|ELS_ID), 
+              data = pub_long_cent_byhand) # no centering
+
+m1.gmc <- lmer(tanner_score ~ 1 + age.mc + (1|ELS_ID), 
+               data = pub_long_cent_byhand) # grand mean centering
+
+m1.cwc <- lmer(tanner_score ~ 1 + age_cent+ (1|ELS_ID), 
+               data = pub_long_cent_byhand) # centering within cluster
+
+m1.cmc <- lmer(tanner_score ~ 1 + age.cm + age.cwc + (1|ELS_ID), 
+               data = pub_long_cent_byhand) # mean age + person's mean (cluster's mean)
+
+# Comparing the results of the centering approaches
+pub_long_cent_byhand %>% 
+  select(age, age.gmc, age.cm, age.cmc, age.cwc) %>%
+  summary
+
+# random slope models
+m1.nc <- lmer(tanner_score ~ 1 + age + (age|ELS_ID), 
+              data = pub_long_cent_byhand) # no centering - model fails to converge
+
+m1.gmc <- lmer(tanner_score ~ 1 + age.gmc + (age.gmc|ELS_ID), 
+               data = pub_long_cent_byhand) # grand mean centering. The intercept here is the value of tanner when age equals the mean across all timepoints. The age slope is hard to interpret bc it represents both between and within person influence on tanner.
+
+m1.cwc <- lmer(tanner_score ~ 1 + age.cwc + (age.cwc|ELS_ID), 
+               data = pub_long_cent_byhand) # centering within cluster (i.e., person). The intercept here represents the average value of tanner when age equals the person's average value of age. The age slope here represents that interval/time effect of age on the within person (level 1) variance of tanner.
+
+
+m1.cmc <- lmer(tanner_score ~ 1 + age.cm + age.cwc + (age.cwc|ELS_ID), 
+               data = pub_long_cent_byhand) # here you are getting change in tanner over mean age + person's mean (cluster's mean)
+
+
+# Comparing the results of the centering approaches
+pub_long_cent_byhand %>% 
+  select(age, age.gmc, age.cm, age.cmc, age.cwc) %>%
+  summary
+```
+
+
+
+### defining functions and themes
+```{r}
+to_fact <-
+  function(x) as.factor(x)
+to_num <-
+  function(x) as.numeric(x)
+
+# ICC
+
+# Function to compute the intraclass correlation coefficient (ICC)
+compute_icc <- function(lmer_object){
+  var_dat <- lmer_object %>% VarCorr %>% as.data.frame
+  icc <- var_dat$vcov[1]/(var_dat$vcov[1]+var_dat$vcov[2])
+  return(icc)
+}
+```
+
+# data viz
+## pds by age
+```{r}
+pub_long_cent_byhand %>%
+  ggplot(
+    aes(x = age,y = pds_total_value,
+        group = ELS_ID,
+        colour = ELS_ID)
+  ) +
+  geom_point(size = 3,
+             alpha = .3) +
+  geom_line() +
+  scale_x_continuous(
+    name = "Age",
+    limits = c(9, 18),                    
+    breaks = seq(9, 18, 1)
+    ) +
+  scale_y_continuous(
+    name = "PDS",
+    limits = c(1, 10),
+    breaks = seq(1,10, 1)
+  ) + 
+  ggtitle("Age and PDS across Adolescence") +
+  theme_minimal() +
+  theme(legend.position = "none")
+```
+
+## tanner by age
+```{r}
+pub_long_cent_byhand %>%
+  ggplot(
+    aes(x = age,y = tanner_score,
+        group = ELS_ID,
+        colour = ELS_ID)
+  ) +
+  geom_point(size = 3,
+             alpha = .3) +
+  geom_line() +
+  scale_x_continuous(
+    name = "Age",
+    limits = c(9, 18),                    
+    breaks = seq(9, 18, 1)
+    ) +
+  scale_y_continuous(
+    name = "Tanner Score",
+    limits = c(1, 5),
+    breaks = seq(1,5, 1)
+  ) + 
+  ggtitle("Age and Tanner across Adolescence") +
+  theme_minimal() +
+  theme(legend.position = "none")
+```
+
+__There isn't much variability in slopes here tanner x age__
+
+## pds by tanner
+```{r}
+pub_long_cent_byhand %>%
+  ggplot(
+    aes(x = tanner_score,y = pds_total_value,
+        group = ELS_ID,
+        colour = ELS_ID)
+  ) +
+  geom_point(size = 3,
+             alpha = .3) +
+  geom_line() +
+  scale_x_continuous(
+    name = "Tanner",
+    limits = c(1, 5),                    
+    breaks = seq(1, 5, 1)
+    ) +
+  scale_y_continuous(
+    name = "PDS",
+    limits = c(1, 10),
+    breaks = seq(1,10, 1)
+  ) + 
+  ggtitle("Tanner and PDS across Adolescence") +
+  theme_minimal() +
+  theme(legend.position = "none")
+```

@@ -1,0 +1,255 @@
+---
+title: "2_cleaning_mw_mood"
+author: "Jackie S. Kirsh"
+date: "02/10/2020"
+output: html_notebook
+---
+
+
+# loading libraries
+```{r}
+library(tidyverse)
+library(foreign)
+library(haven)
+library(readxl)
+```
+
+# Read in MW mood data
+```{r}
+mw_mood_fp <- "~/Box/Daily Emotion-20200214144103.csv"
+mw_mood <- read_csv(mw_mood_fp)
+```
+
+
+# cleaning MW daily emo
+```{r}
+mw_mood_clean <-
+  mw_mood %>%
+  rename(
+    User_ID = 
+      `User Id`,
+    ELS_ID =
+      `First Name`,
+    DeviceOS = 
+      `Device OS`,
+    DailyEMO_sad = 
+      `Since the last prompt, please indicate the extent to which you felt sad`,
+    DailyEMO_annoyedorangry = 
+      `Since the last prompt, please indicate the extent to which you felt annoyed/angry`,
+    DailyEMO_grouchyorcranky =
+      `Since the last prompt, please indicate the extent to which you felt grouchy/cranky`,
+    DailyEMO_worried =
+      `Since the last prompt, please indicate the extent to which you felt worried`,
+    DailyEMO_anxious =
+      `Since the last prompt, please indicate the extent to which you felt anxious`,
+    DailyEMO_happy =
+      `Since the last prompt, please indicate the extent to which you felt happy`,
+    DailyEMO_cheerful =
+      `Since the last prompt, please indicate the extent to which you felt cheerful`,
+    DailyEMO_excited =
+    `Since the last prompt, please indicate the extent to which you felt excited`,
+    DailyEMO_energetic =
+      `Since the last prompt, please indicate the extent to which you felt energetic`,
+    DailyEMO_bored =
+      `Since the last prompt, please indicate the extent to which you felt bored`,
+    DailyEMO_want_other_people =
+      `Since the last prompt, please indicate the extent to which you want to be with other people`,
+    DailyEMO_want_alone =
+      `Since the last prompt, please indicate the extent to which you want to be alone`,
+    DailyEMO_who_are_you_with =
+      `Right now, who are you with?`,
+    DailyEMO_facetoface_YesorNo =
+      `Right now, are you having a face-to-face conversation?`,
+    DailyEMO_digital_convo_YesorNo =
+      `Right now, are you having a real-time digital (phone, text, Facebook, video) conversation?`
+  ) %>%
+  mutate(
+    User_ID = as.factor(User_ID)
+  ) %>%
+  select(-`Response Id`)
+```
+
+# pulling out only "c"
+```{r}
+mw_mood_c <-
+  mw_mood_clean %>%
+  mutate(
+    porc =
+      ifelse(str_detect(ELS_ID, "c"),
+             "C",
+             "P"
+             )
+    )
+
+mw_mood_c <-
+  mw_mood_c %>%
+  filter(
+    porc == "C"
+  )
+
+mw_mood_c_clean <-
+  mw_mood_c %>%
+  mutate(
+    ELS_ID =
+      str_remove_all(ELS_ID,
+                     "[c]")
+    ) %>%
+  mutate(ELS_ID =
+           as.numeric(ELS_ID)
+         ) %>%
+  select(
+    ELS_ID,
+    `Trigger Date`,
+    `Trigger Time`,
+    starts_with("Daily")
+  ) %>%
+  mutate(
+    ELS_ID =
+      as.factor(ELS_ID)
+  )
+```
+
+# For collapsed mood
+
+## means and sds of variables
+```{r}
+mw_mood_c_collapse <-
+  mw_mood_c_clean %>% 
+  group_by(ELS_ID) %>%
+   summarise(DailyEMO_sad_mean = mean(DailyEMO_sad, na.rm=TRUE),  
+             DailyEMO_sad_sd = sd(DailyEMO_sad, na.rm=TRUE), 
+             DailyEMO_annoyorang_mean = 
+               mean(DailyEMO_annoyedorangry, na.rm=TRUE), 
+             DailyEMO_annoyorang_sd =
+               sd(DailyEMO_annoyedorangry, na.rm = TRUE),
+             DailyEMO_grouchorcrank_mean = 
+               mean(DailyEMO_grouchyorcranky, na.rm=TRUE),
+             DailyEMO_grouchorcrank_sd = 
+               sd(DailyEMO_grouchyorcranky, na.rm=TRUE),
+             DailyEMO_worried_mean =
+               mean(DailyEMO_worried, na.rm = TRUE),
+             DailyEMO_worried_sd =
+               sd(DailyEMO_worried, na.rm = TRUE),
+             DailyEMO_anx_mean =
+               mean(DailyEMO_anxious, na.rm = TRUE),
+             DailyEMO_anx_sd =
+               sd(DailyEMO_anxious, na.rm = TRUE),
+             DailyEMO_happy_mean = 
+               mean(DailyEMO_happy, na.rm=TRUE), 
+             DailyEMO_happy_sd = 
+               sd(DailyEMO_happy, na.rm=TRUE), 
+             DailyEMO_cheerful_mean = 
+               mean(DailyEMO_cheerful, na.rm=TRUE), 
+             DailyEMO_cheerful_sd = 
+               sd(DailyEMO_cheerful, na.rm=TRUE), 
+             DailyEMO_excited_mean = 
+               mean(DailyEMO_excited, na.rm=TRUE), 
+             DailyEMO_excited_sd = 
+               sd(DailyEMO_excited, na.rm=TRUE), 
+             DailyEMO_energetic_mean =
+               mean(DailyEMO_energetic, na.rm=TRUE),
+             DailyEMO_energetic_sd= 
+               sd(DailyEMO_energetic, na.rm=TRUE), 
+             DailyEMO_bored_mean =
+               mean(DailyEMO_bored, na.rm=TRUE),
+             DailyEMO_bored_sd =
+               sd(DailyEMO_bored, na.rm=TRUE),
+             DailyEMO_want_other_people_mean = 
+               mean(DailyEMO_want_other_people, na.rm=TRUE), 
+             DailyEMO_want_alone_mean = 
+               mean(DailyEMO_want_alone, na.rm=TRUE)
+             )
+```
+
+
+# prelim pca for mw mood data
+
+```{r}
+library(broom)
+library(ggfortify)
+library(factoextra)
+
+# compute pca
+mw_pca <-
+  mw_mood_c_collapse %>%
+  filter(
+    !is.na(DailyEMO_sad_sd)
+    ) %>%
+  dplyr::select(-ELS_ID,
+                -ends_with("sd"))
+  
+res.pca_mw <- prcomp(mw_pca, scale = TRUE)
+
+# visualize eigenvalues (scree plot). 
+# show percentage of variances explained by each princ comp
+fviz_eig(res.pca_mw)
+
+# graph of individuals. individual with a similar profile are grped together
+fviz_pca_ind(res.pca_mw,
+             col.ind = "cos2", # color by quality of representation
+             gradient.cols = c("lightseagreen", "skyblue1", "snow4"),
+             repel = TRUE # avoid text overlap
+             )
+
+# biplot of individuals and variables
+fviz_pca_biplot(res.pca_mw, repel = TRUE,
+                col.var = "sienna1",
+                col.ind = "skyblue1")
+
+# PCA Results
+# eigenvalues
+eig.val <- get_eigenvalue(res.pca_mw)
+eig.val
+# keeping eigenvalues greater than 1, which are dims 1 and 2
+
+# Results for Variables
+res.var <- get_pca_var(res.pca_mw)
+res.var$coord          # Coordinates
+res.var$contrib        # Contributions to the PCs
+res.var$cos2           # Quality of representation 
+# Results for individuals
+res.ind <- get_pca_ind(res.pca_mw)
+res.ind$coord          # Coordinates
+res.ind$contrib        # Contributions to the PCs
+res.ind$cos2           # Quality of representation 
+```
+
+We essentailly get 2 factors: combining 
+__negative:__ `DailyEMO_sad_mean`, `DailyEMO_annoyorang_mean`,   
+`DailyEMO_grouchorcrank_mean`, `DailyEMO_worried_mean`,  
+`DailyEMO_anx_mean`, `DailyEMO_bored_mean`, `DailyEMO_want_alone_mean`
+
+__positive:__ `DailyEMO_happy_mean`, `DailyEMO_cheerful_mean`,  
+`DailyEMO_excited_mean`, `DailyEMO_energetic_mean`, `DailyEMO_want_other_people_mean`
+```{r}
+mw_fact <-
+  mw_mood_c_collapse %>%
+  filter(
+    !is.na(DailyEMO_sad_sd)
+    ) %>%
+  dplyr::select(-ends_with("sd")) %>%
+  mutate(
+    neg_total =
+      select(., DailyEMO_sad_mean,
+                  DailyEMO_annoyorang_mean,
+                  DailyEMO_grouchorcrank_mean,
+                  DailyEMO_worried_mean,
+                  DailyEMO_anx_mean,
+                  DailyEMO_bored_mean,
+                  DailyEMO_want_alone_mean) %>%
+      rowSums(na.rm = TRUE),
+    pos_total =
+      select(., DailyEMO_happy_mean,
+             DailyEMO_cheerful_mean,
+             DailyEMO_excited_mean,
+             DailyEMO_energetic_mean,
+             DailyEMO_want_other_people_mean) %>%
+      rowSums(na.rm = TRUE)
+  )
+
+```
+
+```{r}
+write_csv(mw_fact,"~/Box/mw_fact.csv")
+```
+

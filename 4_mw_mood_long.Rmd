@@ -1,0 +1,386 @@
+---
+title: "4_mw_mood_long"
+author: "Jackie S. Kirsh"
+date: "02/10/2020"
+output: html_notebook
+---
+
+
+# loading libraries
+```{r}
+library(tidyverse)
+library(foreign)
+library(haven)
+library(readxl)
+library(lubridate)
+```
+
+# Read in MW mood data
+```{r}
+mw_mood_fp <- "~/Box/Daily Emotion-20200214144103.csv"
+mw_mood <- read_csv(mw_mood_fp)
+```
+
+
+# cleaning MW daily emo
+```{r}
+mw_mood_clean <-
+  mw_mood %>%
+  rename(
+    User_ID = 
+      `User Id`,
+    ELS_ID =
+      `First Name`,
+    triggerdate =
+      `Trigger Date`,
+    triggertime =
+      `Trigger Time`,
+    DeviceOS = 
+      `Device OS`,
+    DailyEMO_sad = 
+      `Since the last prompt, please indicate the extent to which you felt sad`,
+    DailyEMO_annoyedorangry = 
+      `Since the last prompt, please indicate the extent to which you felt annoyed/angry`,
+    DailyEMO_grouchyorcranky =
+      `Since the last prompt, please indicate the extent to which you felt grouchy/cranky`,
+    DailyEMO_worried =
+      `Since the last prompt, please indicate the extent to which you felt worried`,
+    DailyEMO_anxious =
+      `Since the last prompt, please indicate the extent to which you felt anxious`,
+    DailyEMO_happy =
+      `Since the last prompt, please indicate the extent to which you felt happy`,
+    DailyEMO_cheerful =
+      `Since the last prompt, please indicate the extent to which you felt cheerful`,
+    DailyEMO_excited =
+    `Since the last prompt, please indicate the extent to which you felt excited`,
+    DailyEMO_energetic =
+      `Since the last prompt, please indicate the extent to which you felt energetic`,
+    DailyEMO_bored =
+      `Since the last prompt, please indicate the extent to which you felt bored`,
+    DailyEMO_want_other_people =
+      `Since the last prompt, please indicate the extent to which you want to be with other people`,
+    DailyEMO_want_alone =
+      `Since the last prompt, please indicate the extent to which you want to be alone`,
+    DailyEMO_who_are_you_with =
+      `Right now, who are you with?`,
+    DailyEMO_facetoface_YesorNo =
+      `Right now, are you having a face-to-face conversation?`,
+    DailyEMO_digital_convo_YesorNo =
+      `Right now, are you having a real-time digital (phone, text, Facebook, video) conversation?`
+  ) %>%
+  mutate(
+    User_ID = as.factor(User_ID)
+  ) %>%
+  select(-`Response Id`)
+```
+
+# pulling out only "c"
+```{r}
+mw_mood_c <-
+  mw_mood_clean %>%
+  mutate(
+    porc =
+      ifelse(str_detect(ELS_ID, "c"),
+             "C",
+             "P"
+             )
+    )
+
+mw_mood_c <-
+  mw_mood_c %>%
+  filter(
+    porc == "C"
+  )
+
+mw_mood_c_clean <-
+  mw_mood_c %>%
+  mutate(
+    ELS_ID =
+      str_remove_all(ELS_ID,
+                     "[c]")
+    ) %>%
+  mutate(ELS_ID =
+           as.numeric(ELS_ID)
+         ) %>%
+  select(
+    ELS_ID,
+    triggerdate,
+    triggertime,
+    starts_with("Daily")
+  ) %>%
+  mutate(
+    ELS_ID =
+      as.factor(ELS_ID)
+  )
+```
+
+# if I need to control for mean moods
+```{r}
+mw_mood_c_collapse <-
+  mw_mood_c_clean %>% 
+  group_by(ELS_ID) %>%
+   summarise(DailyEMO_sad_mean = 
+               mean(DailyEMO_sad, na.rm=TRUE),  
+             DailyEMO_annoyorang_mean = 
+               mean(DailyEMO_annoyedorangry, na.rm=TRUE), 
+             DailyEMO_grouchorcrank_mean = 
+               mean(DailyEMO_grouchyorcranky, na.rm=TRUE),
+             DailyEMO_worried_mean =
+               mean(DailyEMO_worried, na.rm = TRUE),
+             DailyEMO_anx_mean =
+               mean(DailyEMO_anxious, na.rm = TRUE),
+             DailyEMO_happy_mean = 
+               mean(DailyEMO_happy, na.rm=TRUE), 
+             DailyEMO_cheerful_mean = 
+               mean(DailyEMO_cheerful, na.rm=TRUE), 
+             DailyEMO_excited_mean = 
+               mean(DailyEMO_excited, na.rm=TRUE), 
+             DailyEMO_energetic_mean =
+               mean(DailyEMO_energetic, na.rm=TRUE),
+             DailyEMO_bored_mean =
+               mean(DailyEMO_bored, na.rm=TRUE),
+             DailyEMO_want_other_people_mean = 
+               mean(DailyEMO_want_other_people, na.rm=TRUE), 
+             DailyEMO_want_alone_mean = 
+               mean(DailyEMO_want_alone, na.rm=TRUE)
+             )
+```
+
+### parsing dates
+```{r parsing dates}
+mw_mood_c_clean <-
+  mw_mood_c_clean %>%
+  mutate(
+    date1 = parse_date(triggerdate, "%d/%m/%y"),
+    date2 = parse_date(triggerdate, "%d/%m/%Y"),
+    date1 = ymd(date1),
+    date2 = ymd(date2),
+    date1 = as.character(date1),
+    date2 = as.character(date2)
+  )
+```
+
+## creating day and week variables
+```{r}
+# creating day and week variables
+mw_mood_c_clean <-
+  mw_mood_c_clean %>%
+  mutate(
+    date = date1,
+    date = ifelse(
+      !is.na(date2),
+      date2,
+      date
+      )
+    ) %>%
+  mutate(
+    day1 = day(date1),
+    day2 = day(date2),
+    wday1 = wday(date1, label = TRUE),
+    wday2 = wday(date2, label = TRUE)
+  ) %>%
+  mutate(
+    day1 = as.character(day1),
+    day2 = as.character(day2),
+    wday1 = as.character(wday1),
+    wday2 = as.character(wday2)
+  ) %>%
+  mutate(
+    day = day1,
+    day = ifelse(
+      !is.na(day2),
+      day2,
+      day
+    ),
+    week = wday1,
+    week = ifelse(
+      !is.na(wday2),
+      wday2,
+      week
+      )
+    ) %>%
+  dplyr::select(
+    -c(day1:wday2)
+  )
+
+# day num
+mw_mood_c_clean_dayorder  <-
+mw_mood_c_clean %>%
+  left_join(mw_mood_c_clean %>% 
+                        group_by(ELS_ID) %>% 
+                        mutate(dayorder=order(date))) %>%
+  mutate(
+    week = as.factor(week)
+  ) %>%
+  ungroup()
+```
+# dealing with not enough or missing data  
+
+if there are fewer than 2 days of data, I'm removing the subject
+```{r not enough data}
+# how many days per individual?
+mw_mood_c_clean_dayorder <-
+  mw_mood_c_clean_dayorder %>%
+  group_by(ELS_ID) %>%
+  mutate(
+    data_num_obs =
+      max(dayorder)
+  ) %>%
+  ungroup()
+
+# filter those who have more than 1 day
+mw_mood_filter  <-
+  mw_mood_c_clean_dayorder %>%
+  group_by(ELS_ID) %>%
+  filter(
+    data_num_obs > 1
+  ) %>%
+  dplyr::select(
+    -c(
+    triggerdate, date1, date2, day
+    )
+    ) %>%
+  ungroup()
+```
+
+# averaging within day
+just to reduce amount levels of the data to be comparable to sleep
+```{r}
+mw_mood_filter <-
+  mw_mood_filter %>% 
+  group_by(ELS_ID, dayorder) %>%
+   summarize(DailyEMO_sad = 
+               mean(DailyEMO_sad, na.rm=TRUE),  
+             DailyEMO_annoyorang = 
+               mean(DailyEMO_annoyedorangry, na.rm=TRUE), 
+             DailyEMO_grouchorcrank = 
+               mean(DailyEMO_grouchyorcranky, na.rm=TRUE),
+             DailyEMO_worried =
+               mean(DailyEMO_worried, na.rm = TRUE),
+             DailyEMO_anx =
+               mean(DailyEMO_anxious, na.rm = TRUE),
+             DailyEMO_happy = 
+               mean(DailyEMO_happy, na.rm=TRUE), 
+             DailyEMO_cheerful = 
+               mean(DailyEMO_cheerful, na.rm=TRUE), 
+             DailyEMO_excited = 
+               mean(DailyEMO_excited, na.rm=TRUE), 
+             DailyEMO_energetic =
+               mean(DailyEMO_energetic, na.rm=TRUE),
+             DailyEMO_bored =
+               mean(DailyEMO_bored, na.rm=TRUE),
+             DailyEMO_want_other_people = 
+               mean(DailyEMO_want_other_people, na.rm=TRUE), 
+             DailyEMO_want_alone = 
+               mean(DailyEMO_want_alone, na.rm=TRUE)
+             )
+```
+
+# data viz
+
+`DailyEMO_sad`, `DailyEMO_annoyorang`,   
+`DailyEMO_grouchorcrank`, `DailyEMO_worried`,  
+`DailyEMO_anx`, `DailyEMO_bored`, `DailyEMO_want_alone`,
+`DailyEMO_happy`, `DailyEMO_cheerful`, `DailyEMO_excited`,  
+`DailyEMO_energetic`, `DailyEMO_want_other_people`
+```{r sad}
+mw_mood_filter %>%
+  ggplot(aes(dayorder, DailyEMO_sad,
+        group = ELS_ID)) +
+      geom_line(alpha = 1/3) +
+  facet_wrap(~ELS_ID)
+```
+
+```{r annoyed}
+mw_mood_filter %>%
+  ggplot(aes(dayorder, DailyEMO_annoyorang,
+        group = ELS_ID)) +
+      geom_line(alpha = 1/3) +
+  facet_wrap(~ELS_ID)
+```
+
+```{r grouchy}
+mw_mood_filter %>%
+  ggplot(aes(dayorder, DailyEMO_grouchorcrank,
+        group = ELS_ID)) +
+      geom_line(alpha = 1/3) +
+  facet_wrap(~ELS_ID)
+```
+
+```{r worried}
+mw_mood_filter %>%
+  ggplot(aes(dayorder, DailyEMO_worried,
+        group = ELS_ID)) +
+      geom_line(alpha = 1/3) +
+  facet_wrap(~ELS_ID)
+```
+
+```{r anxious}
+mw_mood_filter %>%
+  ggplot(aes(dayorder, DailyEMO_anx,
+        group = ELS_ID)) +
+      geom_line(alpha = 1/3) +
+  facet_wrap(~ELS_ID)
+```
+
+```{r bored}
+mw_mood_filter %>%
+  ggplot(aes(dayorder, DailyEMO_bored,
+        group = ELS_ID)) +
+      geom_line(alpha = 1/3) +
+  facet_wrap(~ELS_ID)
+```
+
+```{r want alone}
+mw_mood_filter %>%
+  ggplot(aes(dayorder, DailyEMO_want_alone,
+        group = ELS_ID)) +
+      geom_line(alpha = 1/3) +
+  facet_wrap(~ELS_ID)
+```
+
+```{r happy}
+mw_mood_filter %>%
+  ggplot(aes(dayorder, DailyEMO_happy,
+        group = ELS_ID)) +
+      geom_line(alpha = 1/3) +
+  facet_wrap(~ELS_ID)
+```
+
+```{r cheerful}
+mw_mood_filter %>%
+  ggplot(aes(dayorder, DailyEMO_cheerful,
+        group = ELS_ID)) +
+      geom_line(alpha = 1/3) +
+  facet_wrap(~ELS_ID)
+```
+
+```{r excited}
+mw_mood_filter %>%
+  ggplot(aes(dayorder, DailyEMO_excited,
+        group = ELS_ID)) +
+      geom_line(alpha = 1/3) +
+  facet_wrap(~ELS_ID)
+```
+
+```{r energetic}
+mw_mood_filter %>%
+  ggplot(aes(dayorder, DailyEMO_energetic,
+        group = ELS_ID)) +
+      geom_line(alpha = 1/3) +
+  facet_wrap(~ELS_ID)
+```
+
+```{r wants other people}
+mw_mood_filter %>%
+  ggplot(aes(dayorder, DailyEMO_want_other_people,
+        group = ELS_ID)) +
+      geom_line(alpha = 1/3) +
+  facet_wrap(~ELS_ID)
+```
+
+
+```{r}
+write_csv(mw_mood_filter,"~/Box/mw_mood_daily.csv")
+```
+

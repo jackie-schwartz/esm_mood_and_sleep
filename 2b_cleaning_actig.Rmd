@@ -1,0 +1,188 @@
+---
+title: "cleaning actigraphy"
+author: "Jackie S. Kirsh"
+date: "02/10/2020"
+output:
+  html_notebook
+---
+
+#Load Libraries
+```{r}
+library(tidyverse)
+library(foreign)
+library(readxl)
+library(haven) 
+library(expss)
+library(chron)
+library(hms)
+library(lubridate)
+```
+
+# Reading in actigraphy data
+```{r}
+actogram <- "~/Box/Combined Export File_1-45_2.9.20.csv" # will need to change everytime
+actogram <- 
+  read_csv(actogram) %>%
+  mutate(subject_id = as.factor(subject_id))
+actogram_more <-  "~/Box/Combined Export File_46-139_2.9.20.csv"
+actogram_more <- 
+  read_csv(actogram_more) %>%
+  mutate(subject_id = as.factor(subject_id))
+```
+
+## cleaning actogram
+```{r}
+actogram <- actogram %>%
+  filter(interval_type == "SLEEP")
+actogram_clean <- actogram %>%
+  rename_all(.,
+             tolower
+             ) %>%
+  dplyr::select(
+    ELS_ID = subject_id,
+    day = interval_number,
+    duration_min = duration,
+    inv_time_sw_min = inv_time_sw,
+    invalid_sw_percent = percent_invalid_sw,
+    onset_latency_min = onset_latency,
+    efficiency_percent = efficiency,
+    waso_min = waso,
+    wake_time_min = wake_time,
+    wake_percent = percent_wake,
+    wake_bouts_num = number_of_wake_bouts,
+    avg_wake_b_min = avg_wake_b,
+    snooze_time_min = snooze_time
+  ) %>%
+  filter(
+    !is.na(day)
+  ) %>%
+  filter(
+    inv_time_sw_min == 0
+  )
+```
+
+## reduced version of actigraphy
+```{r}
+# to_num <-
+#   function(x) as.numeric(x)
+actig_reduced <- 
+  actogram_clean %>%
+  mutate(
+    ELS_ID = as.factor(ELS_ID)
+  ) %>%
+  group_by(ELS_ID) %>%
+  summarise(sleep_dur_mean =
+              mean(duration_min, na.rm =TRUE),
+            onset_latency_mean = 
+              mean(onset_latency_min, na.rm = TRUE),
+            eff_perc_mean =
+              mean(efficiency_percent, na.rm = TRUE),
+            waso_min_mean =
+              mean(waso_min, na.rm = TRUE),
+            wake_bouts_num_mean = 
+              mean(wake_bouts_num, na.rm = TRUE),
+            snooze_time_mean =
+              mean(snooze_time_min, na.rm = TRUE)
+            )
+```
+
+## cleaning actogram more ids
+```{r}
+actogram_x <- actogram_more %>%
+  filter(interval_type == "SLEEP")
+actogram_clean_x <- actogram_x %>%
+  rename_all(.,
+             tolower
+             ) %>%
+  dplyr::select(
+    ELS_ID = subject_id,
+    day = interval_number,
+    duration_min = duration,
+    inv_time_sw_min = inv_time_sw,
+    invalid_sw_percent = percent_invalid_sw,
+    onset_latency_min = onset_latency,
+    efficiency_percent = efficiency,
+    waso_min = waso,
+    wake_time_min = wake_time,
+    wake_percent = percent_wake,
+    wake_bouts_num = number_of_wake_bouts,
+    avg_wake_b_min = avg_wake_b,
+    snooze_time_min = snooze_time
+  ) %>%
+  filter(
+    !is.na(day)
+  ) %>%
+  filter(
+    inv_time_sw_min == 0
+  )  
+```
+
+##  reduced version of actigraphy
+```{r}
+# to_num <-
+#   function(x) as.numeric(x)
+actig_reduced_x <- 
+  actogram_clean_x %>%
+  mutate(
+    ELS_ID = as.factor(ELS_ID)
+  ) %>%
+  group_by(ELS_ID) %>%
+  summarise(sleep_dur_mean =
+              mean(duration_min, na.rm =TRUE),
+            onset_latency_mean = 
+              mean(onset_latency_min, na.rm = TRUE),
+            eff_perc_mean =
+              mean(efficiency_percent, na.rm = TRUE),
+            waso_min_mean =
+              mean(waso_min, na.rm = TRUE),
+            wake_bouts_num_mean = 
+              mean(wake_bouts_num, na.rm = TRUE),
+            snooze_time_mean =
+              mean(snooze_time_min, na.rm = TRUE)
+            )
+```
+
+# merging reduced dataframes
+```{r}
+actig_merged <- bind_rows(actig_reduced, actig_reduced_x)
+```
+
+#### cleaning ID
+```{r}
+actig_merged_clean <-
+  actig_merged %>%
+  mutate(
+    ELS_ID = str_remove(ELS_ID, "-T3"),
+    ELS_ID = as.numeric(ELS_ID),
+    ELS_ID = as.factor(ELS_ID)
+  )
+```
+
+# merging long form dataframes
+
+```{r}
+actig_merged_long <-
+  bind_rows(actogram_clean, actogram_clean_x)
+```
+#### cleaning ID
+```{r}
+actig_merged_long_clean  <-
+  actig_merged_long %>%
+  mutate(
+    ELS_ID = str_remove(ELS_ID, "-T3"),
+    ELS_ID = as.numeric(ELS_ID),
+    ELS_ID = as.factor(ELS_ID)
+  )
+```
+
+# writing out reduced actigraphy dataframe
+```{r}
+write_csv(actig_merged_clean, "~/Box/actig_merged_clean.csv")
+```
+
+# writing out long form actigraphy dataframe
+```{r}
+write_csv(actig_merged_long_clean, "~/Box/actig_merged_clean_long.csv")
+```
+
+

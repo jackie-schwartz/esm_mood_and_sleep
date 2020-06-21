@@ -1,0 +1,298 @@
+---
+title: "2_mw_sleep"
+author: "Jackie"
+date: "2/10/2020"
+output: html_notebook
+---
+# loading libraries
+```{r libraries}
+library(tidyverse)
+library(foreign)
+library(haven)
+library(readxl)
+library(lubridate)
+```
+
+
+# Read in MW sleep data
+```{r read mw sleep}
+mw_sleep_fp <- "~/Box/Daily Sleep 6_45am Survey-20200214144154.csv"
+mw_sleep <- read_csv(mw_sleep_fp)
+```
+
+# cleaning MW_daily_sleep
+```{r cleaning mw sleep}
+mw_sleep_clean <-
+  mw_sleep %>%
+  rename(
+    User_ID = 
+      `User Id`,
+    ELS_ID =
+      `First Name`,
+    triggerdate =
+      `Trigger Date`,
+    DeviceOS = 
+      `Device OS`,
+    DailySleep_hrs = 
+      `How many hours did you sleep last night?`,
+    DailySleep_satisfaction = 
+      `How restful or satisfying was your sleep last night?`
+  ) %>%
+  mutate(
+    User_ID = as.factor(User_ID)
+  ) %>%
+  dplyr::select(-c(`Response Id`,
+            `Submission Location`,
+            `Trigger Id`,
+            `Device Id`)
+  ) %>%
+  mutate(
+    DailySleep_hrs = as.factor(DailySleep_hrs)
+      ) %>%
+  mutate(
+    DailySleep_hrs_rec =
+      recode_factor(DailySleep_hrs,
+                    "5hr or less" = 5,
+                    "6 hr." = 6,
+                    "7hr." = 7,
+                    "8hr." = 8,
+                    "9hr. or more" = 9)
+  ) %>%
+  mutate(
+    DailySleep_hrs_rec = 
+      as.character(DailySleep_hrs_rec)
+         ) %>%
+  mutate(DailySleep_hrs_rec =
+           as.numeric(DailySleep_hrs_rec)
+         )
+```
+
+
+## pulling out only "c"
+```{r only child sleep}
+mw_sleep_c <-
+  mw_sleep_clean %>%
+  mutate(
+    porc =
+      ifelse(str_detect(ELS_ID, "c"),
+             "C",
+             "P"
+             )
+    )
+
+mw_sleep_c <-
+  mw_sleep_c %>%
+  filter(
+    porc == "C"
+  )
+
+mw_sleep_c_clean <-
+  mw_sleep_c %>%
+  mutate(
+    ELS_ID =
+      str_remove_all(ELS_ID,
+                     "[c]")
+    ) %>%
+  mutate(ELS_ID =
+           as.numeric(ELS_ID)
+         ) %>%
+  dplyr::select(
+    ELS_ID,
+    triggerdate,
+    DailySleep_hrs,
+    DailySleep_satisfaction,
+    DailySleep_hrs_rec
+  ) %>%
+  mutate(
+    ELS_ID =
+      as.factor(ELS_ID)
+  )
+```
+
+### parsing dates
+```{r parsing dates}
+
+mw_sleep_c_clean <-
+  mw_sleep_c_clean %>%
+  mutate(
+    date1 = parse_date(triggerdate, "%d/%m/%y"),
+    date2 = parse_date(triggerdate, "%d/%m/%Y"),
+    date1 = ymd(date1),
+    date2 = ymd(date2),
+    date1 = as.character(date1),
+    date2 = as.character(date2)
+  )
+```
+
+## creating day and week variables
+```{r}
+# creating day and week variables
+mw_sleep_c_clean_day <-
+  mw_sleep_c_clean %>%
+  mutate(
+    date = date1,
+    date = ifelse(
+      !is.na(date2),
+      date2,
+      date
+      )
+    ) %>%
+  mutate(
+    day1 = day(date1),
+    day2 = day(date2),
+    wday1 = wday(date1, label = TRUE),
+    wday2 = wday(date2, label = TRUE)
+  ) %>%
+  mutate(
+    day1 = as.character(day1),
+    day2 = as.character(day2),
+    wday1 = as.character(wday1),
+    wday2 = as.character(wday2)
+  ) %>%
+  mutate(
+    day = day1,
+    day = ifelse(
+      !is.na(day2),
+      day2,
+      day
+    ),
+    week = wday1,
+    week = ifelse(
+      !is.na(wday2),
+      wday2,
+      week
+      )
+    ) %>%
+  dplyr::select(
+    -c(day1:wday2)
+  )
+
+# day num
+mw_sleep_c_clean_dayorder  <-
+mw_sleep_c_clean_day %>%
+  left_join(mw_sleep_c_clean_day %>% 
+                        group_by(ELS_ID) %>% 
+                        mutate(dayorder=order(date))) %>%
+  mutate(
+    week = as.factor(week)
+  ) %>%
+  ungroup()
+```
+
+## wkday or wkend
+```{r}
+mw_sleep_c_clean_dayorder <-
+  mw_sleep_c_clean_dayorder %>%
+  mutate(
+    wkday =
+      ifelse(
+        week == "Sun" |
+          week == "Sat",
+        "wkend",
+        "wkday"
+      )
+  )
+```
+
+
+# dealing with not enough or missing data  
+
+if there are fewer than 2 days of data, I'm removing the subject
+```{r not enough data}
+# how many days per individual?
+mw_sleep_c_clean_dayorder <-
+  mw_sleep_c_clean_dayorder %>%
+  group_by(ELS_ID) %>%
+  mutate(
+    data_num_obs =
+      max(dayorder)
+  ) %>%
+  ungroup()
+
+# filter those who have more than 1 day
+mw_sleep_filter  <-
+  mw_sleep_c_clean_dayorder %>%
+  group_by(ELS_ID) %>%
+  filter(
+    data_num_obs > 1
+  ) %>%
+  dplyr::select(
+    -c(
+    triggerdate, date1, date2, day
+    )
+    ) %>%
+  ungroup()
+```
+
+# data viz
+```{r sleep sat}
+mw_sleep_filter %>%
+  ggplot(aes(dayorder, DailySleep_satisfaction,
+        group = ELS_ID)) +
+      geom_line(alpha = 1/3) +
+  facet_wrap(~ELS_ID)
+```
+
+```{r sleep hrs}
+mw_sleep_filter %>%
+  ggplot(aes(dayorder, DailySleep_hrs_rec,
+        group = ELS_ID)) +
+      geom_line(alpha = 1/3) +
+  facet_wrap(~ELS_ID)
+```
+
+### distribution of weekday vs. weekend and association with sleep sat and hrs
+```{r}
+mw_sleep_filter %>%
+  ggplot(
+    aes(x = week, y = DailySleep_satisfaction )
+  ) +
+  geom_boxplot()
+
+mw_sleep_filter %>%
+  ggplot(
+    aes(x = wkday, y = DailySleep_satisfaction )
+  ) +
+  geom_boxplot()
+
+mw_sleep_filter %>%
+  ggplot(
+    aes(x = week, y = DailySleep_hrs_rec )
+  ) +
+  geom_boxplot()
+mw_sleep_filter %>%
+  ggplot(
+    aes(x = wkday, y = DailySleep_hrs_rec )
+  ) +
+  geom_boxplot()
+
+```
+
+### write
+```{r}
+write_csv(mw_sleep_filter, "~/Box/MW_daily_sleep.csv")
+```
+
+### if I want reduced sleep data
+```{r}
+mw_sleep_red <-
+  mw_sleep_filter %>%
+  group_by(ELS_ID, wkday) %>%
+  summarize(
+    dailysleep_sat_mean = mean(DailySleep_satisfaction, na.rm = TRUE),
+    dailysleep_sat_sd = sd(DailySleep_satisfaction, na.rm = TRUE),
+    dailysleep_hrs_mean = mean(DailySleep_hrs_rec, na.rm = TRUE),
+    dailysleep_hrs_sd = sd(DailySleep_hrs_rec, na.rm = TRUE)
+  )
+```
+
+```{r}
+summary(lm(dailysleep_sat_mean ~ wkday, data = mw_sleep_red))
+#  no sig diff btwn sleep sat on wkday vs. wkend
+```
+
+### write
+```{r}
+write_csv(mw_sleep_red, "~/Box/mw_sleep_red.csv")
+```
+

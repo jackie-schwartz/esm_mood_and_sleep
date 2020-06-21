@@ -1,0 +1,465 @@
+---
+title: "1_tanner_threetimpts_cleaning_script"
+author: "Jackie"
+date: "2/11/2020"
+output: html_notebook 
+---
+
+# loading libraries
+```{r}
+library(lmerTest)
+library(tidyverse)
+library(foreign)
+library(haven)
+library(readxl)
+library(naniar)
+```
+
+# read in tanner info
+
+## reading in tanner t1 through t3
+```{r, echo=FALSE}
+tannert1 <-"~/Box/tanner.T1.sav"
+tannert1_df <- read_sav(tannert1)
+
+tannertk1 <-  "~/Box/demographics_golden_standard.TK1.sav"
+tannertk1_df <- read_sav(tannertk1)
+
+tannert2 <- "~/Box/tanner.T2.sav"
+tannert2_df <- read_sav(tannert2)
+
+tannert3 <- "~/Boxtanner.T3.sav"
+tannert3_df <- read_sav(tannert3)
+```
+
+### defining functions
+```{r}
+to_fact <-
+  function(x) as.factor(x)
+to_num <-
+  function(x) as.numeric(x)
+```
+
+# Cleaning Tanner T1
+
+## converting variables
+```{r}
+tannert1_df_clean <- 
+  tannert1_df %>%
+  mutate(
+    ELS_ID = as.factor(ELS_ID)
+  ) %>%
+  mutate_at(
+    vars(
+      starts_with("tanner"),
+      -tanner_date.T1),
+    to_num) %>%
+  dplyr::select(-Timepoint)
+  
+```
+
+## computing new variables for T1
+
+_averaged breast/pub for female and averaged testes/pub for male_
+```{r}
+tannert1_df_clean <- 
+  tannert1_df_clean %>%
+  mutate(tanner_female_avg.T1 = 
+           rowMeans(
+             tannert1_df_clean[,c(
+               "tanner_female_breasts.T1",
+               "tanner_female_pubhair.T1"
+               )], 
+             na.rm = T)
+         ) %>%
+  mutate(tanner_male_avg.T1 =
+           rowMeans(
+             tannert1_df_clean[,c(
+               "tanner_male_testes.T1",
+               "tanner_male_pubhair.T1"
+               )],
+             na.rm = T)
+         )
+
+# replace with NA
+tannert1_df_clean <- 
+  tannert1_df_clean %>%
+  replace_with_na(replace =
+                    list(tanner_female_avg.T1 = c("NaN"))) %>%
+  replace_with_na(replace = 
+                    list(tanner_male_avg.T1 = c("NaN"))) 
+```
+
+### cleaning up NaNs and excluding those who came in over tanner stage 3
+```{r}
+tannert1_df_clean <- 
+  tannert1_df_clean %>%
+  mutate(above_tanner_limit =
+           ifelse(tanner_female_avg.T1 > 3 |
+                    tanner_male_avg.T1 > 3,
+                  "1",
+                  "0")
+         )
+  # mutate(above_tanner_limit =
+  #          fct_explicit_na(above_tanner_limit,
+  #                          na_level = "NA")
+  #        )
+```
+
+## removing subjects above tanner stage 3
+```{r}
+# not removing for now
+above_tanner_3 <-
+  tannert1_df_clean %>%
+  group_by(above_tanner_limit) %>%
+  summarize(N = n()
+            )
+above_tanner_3 <-
+  tannert1_df_clean %>%
+  filter(above_tanner_limit == "1")
+# 10 subjects (F = 6, M = 4) above tanner stage 3 upon entering study, so
+# will remove these subjects
+tannert1_df_clean_noNA <-
+  tannert1_df_clean %>%
+  filter(is.na(above_tanner_limit)) %>%
+  select(-above_tanner_limit)
+```
+
+```{r}
+# tidying tanner at t1 up
+tannert1_df_tidy <-
+  tannert1_df_clean %>%
+  gather(tannert1,
+         tanner_average.T1,
+         tanner_male_avg.T1,
+         tanner_female_avg.T1) %>%
+  filter(!is.na(tanner_average.T1)
+         ) 
+```
+
+
+```{r}
+dup <-
+  tannert1_df_tidy %>%
+filter(
+  !is.na(Session_Type)
+)
+```
+
+
+```{r}
+tannert1_df_clean_filtered <-
+  tannert1_df_tidy %>%
+  filter(!(ELS_ID == "xx" &
+           tanner_date.T1 == "yy")
+  )
+```
+
+
+#### merging with tk1
+```{r}
+# tanner t1 with tanner tk1
+tannertk1_df <-
+  tannertk1_df %>%
+  mutate(ELS_ID = as.factor(ELS_ID),
+         TK1_Child_Sex_R = as.factor(TK1_Child_Sex_R))
+
+xtra_tk1info <- "~/TK1_Demographics_Tanner.sav"
+xtra_tk1 <- read_sav(xtra_tk1info) %>%
+  mutate(ELS_ID = as.factor(ELS_ID))
+
+tannertk1 <-
+  left_join(
+    tannertk1_df,
+    xtra_tk1,
+    by = "ELS_ID"
+  ) %>%
+  mutate(ELS_ID = as.factor(ELS_ID))
+
+tannert1_df_clean_filtered <- 
+  left_join(
+    tannert1_df_clean_filtered,
+    tannertk1,
+    by = "ELS_ID")
+
+tannert1_df_clean_filtered <-
+  tannert1_df_clean_filtered %>%
+  mutate(
+    ELS_ID = as.factor(ELS_ID),
+    tanner_date.T1 =
+      ifelse(
+        is.na(tanner_date.T1)  &
+          !is.na(Session_Date),
+        Session_Date,
+        tanner_date.T1
+      ),
+    tanner_date.T1 = as.Date(tanner_date.T1,
+                             origin = "1970-01-01"),
+    Age.TK1 = Age_at_session,
+    tanner_female_avg.T1 =
+      ifelse(
+        is.na(tanner_average.T1) &
+          !is.na(TK1_TannerAvg),
+        TK1_TannerAvg,
+        tanner_average.T1
+      )
+  ) 
+```
+
+
+### writing T1 tanner file
+```{r}
+tanner_t1_fp <- 
+  "~/tanner_t1.csv"
+write_csv(tannert1_df_clean_filtered,tanner_t1_fp)
+```
+
+# Cleaning Tanner T2  
+__Includes tanner t2 s1 and tanner t2 s2__
+
+## converting variables
+```{r}
+tannert2_df_clean <- 
+  tannert2_df %>%
+  mutate(ELS_ID = as.factor(ELS_ID)
+  ) %>%
+  mutate_at(
+    vars(
+      starts_with("tanner"),
+      -tanner_date_s1.T2,
+      -tanner_date_s2.T2),
+    to_num
+  )
+```
+
+### filtering out duplicated IDs in tannert2
+_I'm using the .5/.2 sessions bc they are closest to the scan date_
+```{r, warning=FALSE, echo=FALSE}
+
+# duplicated IDs
+tannert2_df_dup <- 
+  tannert2_df_clean  %>%
+  filter(duplicated(ELS_ID)
+         ) 
+
+# adding a "re-assessed" variable
+tannert2_df_clean <- 
+  tannert2_df_clean %>%
+  mutate(reassessed =
+           ifelse(is.na(Session_Type),
+                  "no",
+                  "yes"
+                  )
+         )
+```
+
+```{r}
+tannert2_df_unique <- 
+  tannert2_df_clean %>%
+  filter(!(ELS_ID == "xx" & 
+           is.na(Session_Type)
+           )
+         ) 
+```
+
+
+## creating variable to denote assessed at scan
+_t2s2 tanner was recorded for those who had tanner reassesed at their scan._  
+_A majority of subjects who are in both t2s1 and t2s2 tanner data files_   
+_had there scan closest to the t2s2 tanner date._  
+```{r}
+tannert2_note_scan <-
+  tannert2_df_unique %>%
+  mutate(tanner_at_scan =
+           1) %>%
+  mutate(tanner_at_scan =
+           ifelse(ELS_ID == "x1"| 
+                    ELS_ID == "x2" |
+                    ELS_ID == "x3"|
+                    ELS_ID == "x4" |
+                    ELS_ID == "x5",
+                  0,
+                  tanner_at_scan)
+  ) # 1 = tanner assessed at scan; 0 = no scan
+```
+
+
+## cleaning the t2final file
+```{r}
+tannert2_final <- 
+  tannert2_note_scan %>%
+  mutate(has_t2s2 =
+           ifelse(
+             !is.na(tanner_average_s2.T2),
+             1,
+             0)
+  )
+
+tannert2_final_clean <- 
+  tannert2_final %>%
+  mutate(tanner_average.T2 =
+           ifelse(
+             has_t2s2 == "0",
+             tanner_average_s1.T2,
+             tanner_average_s2.T2
+           )
+         ) %>%
+  mutate(tanner_date.T2 =
+           ifelse(
+             has_t2s2 == "0",
+             tanner_date_s1.T2,
+             tanner_date_s2.T2)
+         ) %>%
+  mutate(tanner_date.T2 = 
+           as.Date(tanner_date.T2,
+                   origin = "1970-01-01")
+         )
+```
+
+#### check of NAs
+```{r}
+anynas <- 
+  tannert2_final_clean  %>%
+  filter(
+    is.na(tanner_average.T2)
+         )
+```
+
+### writing T2_final tanner file
+```{r}
+tanner_t2_fp <- 
+  "~/Box/tanner_t2.csv"
+write_csv(tannert2_final_clean,tanner_t2_fp)
+```
+
+# summary 
+
+## How many subjects at T1?
+```{r}
+tannert1_table <-
+  tannert1_df_clean_filtered %>%
+  group_by(tannert1) %>%
+  summarize(
+    tanner_avg = mean(tanner_average.T1, na.rm = TRUE),
+    tanner_med = median(tanner_average.T1, na.rm = TRUE),
+    n = n()
+  )
+tannert1_table
+# 131 F
+# 93 M
+t.test(tannert1_df_clean_filtered$tanner_average.T1 ~  tannert1_df_clean_filtered$tannert1,
+       na.action = na.omit)
+# t = 1.4311, df = 212.53, p-value = 0.1539
+# mean of x = 2.085878 mean of y = 1.946237
+```
+
+# How many subjects at T2?
+```{r}
+tannert2_table <- 
+  tannert2_final_clean %>%
+  filter(!is.na(tanner_average.T2)) %>%
+  summarize(
+    n = n()
+  )
+tannert2_table
+```
+
+# Cleaning Tanner T3  
+```{r}
+tannert3_df_clean <- 
+  tannert3_df %>%
+  mutate(
+    ELS_ID = as.factor(ELS_ID)
+  ) %>%
+  mutate_at(
+    vars(
+      starts_with("tanner"),
+      -tanner_date.T3),
+    to_num) %>%
+  dplyr::select(-Timepoint)
+```
+
+_I'm using the .5/.2 sessions bc they are closest to the scan date_
+```{r, warning=FALSE, echo=FALSE}
+
+tannert3_df_dup <- 
+  tannert3_df_clean  %>%
+  filter(duplicated(ELS_ID)
+         ) 
+
+# adding a "re-assessed" variable
+tannert3_df_clean <- 
+  tannert3_df_clean %>%
+  mutate(reassessed =
+           ifelse(is.na(Session_Type),
+                  "no",
+                  "yes"
+                  )
+         )
+```
+
+```{r}
+tannert3_df_unique <- 
+  tannert3_df_clean %>%
+  filter(!(ELS_ID == "xx" & 
+           is.na(Session_Type)
+           )
+         ) 
+```
+
+# cleaning T3 tanner average variable name
+```{r}
+# 1 = male (converting to "0")
+# 2 = female (converting to "1")
+tannert3_final_clean <-
+  tannert3_df_unique %>%
+  mutate(
+    tanner_sex.T3 = as.factor(tanner_sex.T3)
+  ) %>%
+  rename(
+    tanner_average.T3 = ends_with("average.T3")
+  ) %>%
+  mutate(
+    recode_factor(tanner_sex.T3,
+                  "1" = "0",
+                  "2" = "1")
+  )
+```
+
+#### check of NAs
+```{r}
+anynas <- 
+  tannert3_final_clean %>%
+  filter(
+    is.na(tanner_average.T3)
+         )
+```
+
+# summary 
+
+## How many subjects at T3?
+```{r}
+tannert3_table <-
+  tannert3_final_clean %>%
+  group_by(tanner_sex.T3) %>%
+  summarize(
+    tanner_avg = mean(tanner_average.T3, na.rm = TRUE),
+    tanner_med = median(tanner_average.T3, na.rm = TRUE),
+    n = n()
+  )
+tannert3_table
+# 69 F
+# 59 M
+t.test(tannert3_final_clean$tanner_average.T3 ~  tannert3_final_clean$tanner_sex.T3,
+       na.action = na.omit)
+# t = 0.16893, df = 117.75, p-value = 0.8661
+# mean of x = 4.296610 mean of y = 4.275362
+```
+
+
+### writing T3_final tanner file
+```{r}
+tanner_t3_fp <- 
+  "~/Box/tanner_t3.csv"
+write_csv(tannert3_final_clean,tanner_t3_fp)
+```

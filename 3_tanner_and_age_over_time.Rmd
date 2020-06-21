@@ -1,0 +1,336 @@
+---
+title: "3_tanner/pds_and_age_over_time"
+author: "Jackie"
+date: "2/11/2020"
+output: html_notebook
+---
+
+# loading libraries
+```{r}
+library(lmerTest)
+library(tidyverse)
+library(foreign)
+library(haven)
+library(readxl)
+library(naniar)
+library(lubridate)
+```
+
+
+# reading in tanner and pds plus dem dataframes
+This is the output from my first two scripts
+```{r}
+# t1
+
+t1_fp <- "~/Box/dem_plus_tanandpds_t1.csv"
+t1 <- read_csv(t1_fp) %>%
+  mutate(ELS_ID = as.factor(ELS_ID))
+
+# t2
+
+t2_fp <- "~/Box/dem_plus_tanandpds_t2.csv"
+t2 <- read_csv(t2_fp) %>%
+  mutate(ELS_ID = as.factor(ELS_ID))
+
+# t3
+
+t3_fp <- "~/Box/dem_plus_tanandpds_t3.csv"
+t3 <- read_csv(t3_fp) %>%
+  mutate(ELS_ID = as.factor(ELS_ID))
+
+```
+
+# merging
+```{r}
+merged <-
+  left_join(
+    t1,
+    t2,
+    by = "ELS_ID"
+  )
+
+merged <-
+  left_join(
+    merged,
+    t3,
+    by = "ELS_ID"
+  )
+```
+
+# decreasers only for tanner
+literature includes decreasers if looking at pds
+```{r}
+merged <-
+  merged %>%
+  mutate(
+    tanner_average.T1 = as.numeric(tanner_average.T1),
+    tanner_average.T2 = as.numeric(tanner_average.T2),
+    tanner_average.T3 = as.numeric(tanner_average.T3)
+  ) %>%
+  mutate(
+    decreaser =
+      ifelse(
+        tanner_average.T1 > tanner_average.T2 |
+          tanner_average.T1 > tanner_average.T3,
+        "yes",
+        "no"
+      ),
+    decreaser =
+      ifelse(
+        tanner_average.T2 > tanner_average.T3,
+        "yes",
+        decreaser
+      )
+  )
+```
+
+
+# exculsion?
+We are excluding anyone with only one time point of data and those who "decreased"
+```{r}
+merged_exc <-
+  merged %>%
+  mutate(
+    num_timepts =
+      ifelse(
+        is.na(pds_total_value.T1) &
+          is.na(pds_total_value.T2) &
+          is.na(pds_total_value.T3),
+        "0",
+        "1"
+      ),
+    num_timepts =
+      ifelse(
+        !is.na(pds_total_value.T1) &
+          is.na(pds_total_value.T2) &
+          is.na(pds_total_value.T3),
+        "1",
+        num_timepts
+      ),
+    num_timepts =
+      ifelse(
+        is.na(pds_total_value.T1) &
+          !is.na(pds_total_value.T2) &
+          is.na(pds_total_value.T3),
+        "1",
+        num_timepts
+        ),
+    num_timepts =
+      ifelse(
+        is.na(pds_total_value.T1) &
+          is.na(pds_total_value.T2) &
+          !is.na(pds_total_value.T3),
+        "1",
+        num_timepts
+        ),
+    num_timepts =
+      ifelse(
+        !is.na(pds_total_value.T1) &
+          !is.na(pds_total_value.T2) &
+          is.na(pds_total_value.T3),
+        "2",
+        num_timepts
+      ),
+      num_timepts =
+      ifelse(
+        !is.na(pds_total_value.T1) &
+          is.na(pds_total_value.T2) &
+          !is.na(pds_total_value.T3),
+        "2",
+        num_timepts
+      ),
+    num_timepts = 
+      ifelse(
+        is.na(pds_total_value.T1) &
+          !is.na(pds_total_value.T2) &
+          !is.na(pds_total_value.T3),
+        "2",
+        num_timepts
+      ),
+    num_timepts = 
+      ifelse(
+        !is.na(pds_total_value.T1) &
+          !is.na(pds_total_value.T2) &
+          !is.na(pds_total_value.T3),
+        "3",
+        num_timepts
+        )
+  )
+
+merged_d <-
+  merged_exc %>%
+  filter(
+    is.na(decreaser) | decreaser == "no"
+  )
+```
+
+### only one time point so far
+```{r}
+only_one_timept <-
+  merged_d %>%
+  filter(
+    num_timepts == "1"
+  )
+
+```
+
+#### summary table for only one time point so far
+```{r}
+summary_only_one_timept <-
+  only_one_timept %>%
+  group_by(Child_Sex.T1_rec) %>%
+  summarize(
+    mean_tanner = mean(tanner_average.T1, na.rm = TRUE),
+    mean_pds = mean(pds_total_value.T1, na.rm = TRUE),
+    median_tanner = median(tanner_average.T1, na.rm = TRUE),
+    median_pds = median(pds_total_value.T1, na.rm = TRUE),
+    min_tanner = min(tanner_average.T1, na.rm = TRUE),
+    min_pds = min(pds_total_value.T1, na.rm = TRUE),
+    max_tanner = max(tanner_average.T1, na.rm = TRUE),
+    max_pds = max(tanner_average.T1, na.rm = TRUE),
+    mean_age = mean(Age.T1, na.rm = TRUE),
+    median_age = median(Age.T1, na.rm = TRUE),
+    min_age = min(Age.T1, na.rm = TRUE),
+    max_age = max(Age.T1, na.rm = TRUE),
+    n = n()
+  )
+print(summary_only_one_timept)
+```
+
+
+## those with at least 2 time points
+```{r}
+two_or_more_tanner_pds_timepts <-
+  merged_exc %>%
+  filter(
+    num_timepts != "1"
+  ) %>%
+  mutate(
+    interval_t1t2 = Age.T2 - Age.T1,
+    interval_t1t3_t3bx = Age_Bx.T3 - Age.T1,
+    interval_t1t3_t3sc = Age_scan.T3 - Age.T1,
+    interval_t2t3_t3bx = Age_Bx.T3 - Age.T2,
+    interval_t2t3_t3sc = Age_scan.T3 - Age.T1
+  )
+```
+
+# wide to long
+```{r}
+two_or_more_tanner_pds_timepts_long <-
+  two_or_more_tanner_pds_timepts %>%
+  mutate(
+    ELS_ID = as.factor(ELS_ID)
+  ) %>%
+  gather(
+    pds_total_timepoint,
+    pds_total_value,
+    pds_total_value.T1,
+    pds_total_value.T2,
+    pds_total_value.T3
+  ) %>%
+  gather(
+    pds_adren_timepoint,
+    pds_adren_value,
+    pds_adren_value.T1,
+    pds_adren_value.T2,
+    pds_adren_value.T3
+  ) %>%
+  gather(
+    pds_gonad_timepoint,
+    pds_gonad_value,
+    pds_gonad_value.T1,
+    pds_gonad_value.T2,
+    pds_gonad_value.T3
+  ) %>%
+  mutate(
+    match_pds = 
+      ifelse(
+        pds_total_timepoint == "pds_total_value.T1" &
+          pds_adren_timepoint == "pds_adren_value.T1" &
+          pds_gonad_timepoint == "pds_gonad_value.T1",
+        "match_pds",
+        "no_match_pds"
+      ),
+    match_pds =
+      ifelse(
+        pds_total_timepoint == "pds_total_value.T2" &
+          pds_adren_timepoint == "pds_adren_value.T2" &
+          pds_gonad_timepoint == "pds_gonad_value.T2",
+        "match_pds",
+        match_pds
+      ),
+    match_pds =
+      ifelse(
+        pds_total_timepoint == "pds_total_value.T3" &
+          pds_adren_timepoint == "pds_adren_value.T3" &
+          pds_gonad_timepoint == "pds_gonad_value.T3",
+        "match_pds",
+        match_pds
+      )      
+  ) %>%
+  filter(
+    match_pds == "match_pds"
+  ) %>% 
+  gather(
+    tanner_timepoint,
+    tanner_score,
+    tanner_average.T1,
+    tanner_average.T2,
+    tanner_average.T3
+  ) %>%
+  gather(
+    age_timepoint,
+    age,
+    Age.T1,
+    Age.T2,
+    Age.T3
+  ) %>%
+  mutate(
+    match =
+      ifelse(
+        tanner_timepoint == "tanner_average.T1" &
+          age_timepoint == "Age.T1" &
+          pds_total_timepoint == "pds_total_value.T1",
+        "match",
+        "nonmatch"
+      ),
+    match = 
+      ifelse(
+        tanner_timepoint == "tanner_average.T2" &
+          age_timepoint == "Age.T2" &
+          pds_total_timepoint == "pds_total_value.T2",
+        "match",
+        match       
+      ),
+    match =
+      ifelse(
+        tanner_timepoint == "tanner_average.T3" &
+          age_timepoint == "Age.T3" &
+          pds_total_timepoint == "pds_total_value.T3",
+        "match",
+        match
+        )
+  ) %>%
+  filter(
+    match == "match"
+  ) %>%
+  dplyr::select(
+    -starts_with("match")
+  ) %>%
+  mutate(
+    ELS_ID = as.factor(ELS_ID)
+  )
+```
+
+
+### writing wide format dataframe
+```{r}
+two_or_more_tanner_pds_timepts_wide_fp <- "~/Box/two_or_more_tanner_pds_timepts_wide.csv"
+write_csv(two_or_more_tanner_pds_timepts, two_or_more_tanner_pds_timepts_wide_fp)
+```
+
+```{r}
+two_or_more_tanner_pds_timepts_long_fp <- "~/Box/two_or_more_tanner_pds_timepts_long.csv"
+write_csv(two_or_more_tanner_pds_timepts_long, two_or_more_tanner_pds_timepts_long_fp)
+```
+
